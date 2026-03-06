@@ -1697,27 +1697,27 @@ def _mark_busbar_grid_points(
         params: Drawing parameters.
         horizontal: bus orientation.
     """
-    if horizontal
+    if horizontal:
         x_positions = [
-            xoff - params.grid_step,
-            xoff,
-            xoff + params.grid_step,
+            bayoff - params.grid_step,
+            bayoff,
+            bayoff + params.grid_step,
         ]
         if extend_prev:
-            x_positions.insert(0, xoff - 2 * params.grid_step)
+            x_positions.insert(0, bayoff - 2 * params.grid_step)
 
         for x in x_positions:
-            mark_grid_point(sub, x, y_pos, weight=weight, owner_id=owner_id)
+            mark_grid_point(sub, x, elem_pos, weight=weight, owner_id=owner_id)
     else:
         y_positions = [ 
-        y_pos - params.grid_step, 
-        y_pos, 
-        y_pos + params.grid_step,
+        elem_pos - params.grid_step, 
+        elem_pos, 
+        elem_pos + params.grid_step,
       ] 
-      if extend_prev: 
-        y_positions.insert(0, y_pos - 2* params.grid_step) 
-      for y in y_positions: 
-        mark_grid_point(sub, xoff, y, weight=weight,owner_id=owner_id) 
+        if extend_prev: 
+            y_positions.insert(0, elem_pos - 2* params.grid_step) 
+        for y in y_positions: 
+            mark_grid_point(sub, bayoff, y, weight=weight,owner_id=owner_id) 
 
 def _draw_standard_element_frame(
     parent_group: draw.Group,
@@ -1743,7 +1743,7 @@ def _draw_standard_element_frame(
             bayoff if horizontal else elem_pos,
             elem_pos if horizontal else bayoff,
             bayoff if horizontal else elem_pos + params.grid_step,
-            y_pos + params.grid_step if horzontal else bayoff,
+            elem_pos + params.grid_step if horizontal else bayoff,
             stroke=colour,
             stroke_width=2
         )
@@ -1751,10 +1751,10 @@ def _draw_standard_element_frame(
     # End line
     parent_group.append(
         draw.Line(
-             bayoff if horizontal else elem_pos,
-            elem_pos if horizontal else bayoff, 
-            bayoff if horizontal else elem_pos + params.grid_step, 
-            elem_pos + params.grid_step if horizontal 
+            bayoff if horizontal else elem_pos,
+            elem_pos + 2 * params.grid_step if horizontal else bayoff, 
+            bayoff if horizontal else elem_pos + 3 * params.grid_step, 
+            elem_pos + 3 * params.grid_step if horizontal 
                 else bayoff, 
             stroke=colour,
             stroke_width=2,
@@ -1981,6 +1981,7 @@ def draw_busbar_object(
 
     if subtype in ["standard","string"]:
         # Determine line start position
+        line_width = 5 if subtype == "standard" else 2
         if horizontal: 
             line_start_x = bayoff - ( 
                 2 * params.grid_step if extend_prev else params.grid_step 
@@ -2015,7 +2016,7 @@ def draw_busbar_object(
                 sub, elem_pos, bayoff, extend_prev, BUSBAR_WEIGHT, owner_id, params) 
 
         # Add text label if first bay
-        if subtype == "standard"
+        if subtype == "standard":
             if is_first_bay:
                 bus_id = element["id"]
                 bus_name = sub.buses.get(bus_id, "")
@@ -2065,7 +2066,7 @@ def draw_busbar_object(
 
     elif subtype in ["tie_cb", "tie_cb_thin", "tie_isol", "tie_isol_thin"]:
         # Draw busbar with tie CB or Isol
-#        line_width = 5 if subtype == "tie_cb" else 2
+        line_width = 5 if subtype == "tie_cb" else 2
 
         # Determine first line coordinates
         if horizontal: 
@@ -2086,7 +2087,7 @@ def draw_busbar_object(
         parent_group.append(
             draw.Line(
                 line_start_x, 
-                line_start_x, 
+                line_start_y, 
                 line_end_x, 
                 line_end_y, 
                 stroke=colour,
@@ -2156,11 +2157,11 @@ def draw_busbar_object(
 
         # Mark grid points with ELEMENT_WEIGHT
         _mark_busbar_grid_points(
-            sub, xoff, y_pos, extend_left, ELEMENT_WEIGHT, owner_id, params
+            sub, bayoff, elem_pos, extend_prev, ELEMENT_WEIGHT, owner_id, params
         )
 
-    elif subtype in ["tie_isol", "tie_isol_thin"]:
-        # 45 degree isolator line (25px wide) 
+        if subtype in ["tie_isol", "tie_isol_thin"]:
+#        # 45 degree isolator line (25px wide) 
 
 #        # Left line segment (extended if needed)
 #        parent_group.append(
@@ -2175,29 +2176,29 @@ def draw_busbar_object(
 #        )
 
         # 45-degree isolator line (25px wide)
-        isolator_half_size = params.grid_step / 2
-        if horizontal: 
-            parent_group.append( 
-                draw.Line( 
-                    bayoff - isolator_half_size, 
-                    elem_pos - isolator_half_size, 
-                    bayoff + isolator_half_size, 
-                    elem_pos + isolator_half_size, 
-                    stroke=colour, 
-                    stroke_width = line_width, 
-                ) 
-            ) 
-        else: 
-            parent_group.append( 
-                draw.Line( 
-                    elem_pos - isolator_half_size, 
-                    bayoff - isolator_half_size, 
-                    elem_pos + isolator_half_size, 
-                    bayoff + isolator_half_size, 
-                    stroke=colour, 
-                    stroke_width = line_width, 
-                ) 
-            ) 
+            isolator_half_size = params.grid_step / 2
+            if horizontal: 
+                parent_group.append( 
+                    draw.Line( 
+                        bayoff - isolator_half_size, 
+                        elem_pos - isolator_half_size, 
+                        bayoff + isolator_half_size, 
+                        elem_pos + isolator_half_size, 
+                        stroke=colour, 
+                        stroke_width = line_width, 
+                        ) 
+                    ) 
+            else: 
+                parent_group.append( 
+                    draw.Line( 
+                        elem_pos - isolator_half_size, 
+                        bayoff - isolator_half_size, 
+                        elem_pos + isolator_half_size, 
+                        bayoff + isolator_half_size, 
+                        stroke=colour, 
+                        stroke_width = line_width, 
+                        ) 
+                    ) 
 
 
 #        # Right line segment
@@ -2218,7 +2219,7 @@ def draw_busbar_object(
                 sub, bayoff, elem_pos, extend_prev, ELEMENT_WEIGHT, owner_id, params 
                 ) 
         else: 
-            _mark_busbar_grid_points(sub, elem_pos, bayoff, extend_prev, ELEMENT_WEIGHT, owner_id, params  XXX
+            _mark_busbar_grid_points(sub, elem_pos, bayoff, extend_prev, ELEMENT_WEIGHT, owner_id, params
                 ) 
 
     return elem_pos 
@@ -2266,15 +2267,14 @@ def draw_element_object(
             horizontal 
             ) 
         _draw_standard_element_symbol(
-            _draw_standard_element_symbol( 
             parent_group,  
             subtype,  
             bayoff,  
             elem_pos,  
             colour,  
             params, 
-            horizontal 
-        ) 
+            horizontal
+            )
         for i in range(4):
             mark_grid_point(
                 sub,
@@ -2567,7 +2567,7 @@ def get_substation_group(
             ]
 
             # Pre-calculate the maximum offset needed for any bay to align all busbars
-            child_max_elem_offse = 0
+            child_max_elem_offset = 0
             for elements in child_parsed_bays:
                 element_offset_for_alignment = 0
                 first_busbar_idx = next(
