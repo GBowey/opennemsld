@@ -1859,11 +1859,11 @@ def _draw_standard_element_symbol(
             draw.Line(
                 symbol_center_x - params.grid_step / 2 if horizontal
                     else symbol_center_x - params.grid_step / 4,
-                symbol_center_y + params.grid_step / 4 if horizontal
+                symbol_center_y - params.grid_step / 4 if horizontal
                     else symbol_center_y - params.grid_step / 2,
                 symbol_center_x + params.grid_step / 2 if horizontal
-                    else symbol_center_x + params.grid_step / 4,
-                symbol_center_y + params.grid_step / 4 if horizontal
+                    else symbol_center_x - params.grid_step / 4,
+                symbol_center_y - params.grid_step / 4 if horizontal
                     else symbol_center_y + params.grid_step / 2,
                 stroke=colour,
                 stroke_width=2,
@@ -2333,6 +2333,9 @@ def parse_bay_elements(bay_def: str) -> list:
 
         elif char == "r":
             elements.append({"type": "element", "subtype": "reac"})
+            char_index += 1
+
+        elif char in [" ",","]: # ignore space & comma
             char_index += 1
 
         # Handle connection objects
