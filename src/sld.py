@@ -1670,6 +1670,7 @@ def draw_bay_from_string(
                 colour,
                 draw_dot=should_draw_dot,
                 owner_id=owner_id,
+                horizontal=horozontal,
             )
 
     return parent_group
@@ -1710,14 +1711,14 @@ def _mark_busbar_grid_points(
             mark_grid_point(sub, x, elem_pos, weight=weight, owner_id=owner_id)
     else:
         y_positions = [ 
-        elem_pos - params.grid_step, 
-        elem_pos, 
-        elem_pos + params.grid_step,
+        bayoff - params.grid_step, 
+        bayoff, 
+        bayoff + params.grid_step,
       ] 
         if extend_prev: 
-            y_positions.insert(0, elem_pos - 2* params.grid_step) 
+            y_positions.insert(0, bayoff - 2* params.grid_step) 
         for y in y_positions: 
-            mark_grid_point(sub, bayoff, y, weight=weight,owner_id=owner_id) 
+            mark_grid_point(sub, elem_pos, y, weight=weight,owner_id=owner_id) 
 
 def _draw_standard_element_frame(
     parent_group: draw.Group,
@@ -1751,7 +1752,7 @@ def _draw_standard_element_frame(
     # End line
     parent_group.append(
         draw.Line(
-            bayoff if horizontal else elem_pos,
+            bayoff if horizontal else elem_pos + 2 * params.grid_step,
             elem_pos + 2 * params.grid_step if horizontal else bayoff, 
             bayoff if horizontal else elem_pos + 3 * params.grid_step, 
             elem_pos + 3 * params.grid_step if horizontal 
@@ -1856,6 +1857,20 @@ def _draw_standard_element_symbol(
         )
         parent_group.append(
             draw.Line(
+                symbol_center_x - params.grid_step / 2 if horizontal
+                    else symbol_center_x - params.grid_step / 4,
+                symbol_center_y + params.grid_step / 4 if horizontal
+                    else symbol_center_y - params.grid_step / 2,
+                symbol_center_x + params.grid_step / 2 if horizontal
+                    else symbol_center_x + params.grid_step / 4,
+                symbol_center_y + params.grid_step / 4 if horizontal
+                    else symbol_center_y + params.grid_step / 2,
+                stroke=colour,
+                stroke_width=2,
+            )
+        )
+        parent_group.append(
+            draw.Line(
                 symbol_center_x if horizontal
                     else symbol_center_x + params.grid_step / 4 ,
                 symbol_center_y + params.grid_step / 4 if horizontal
@@ -1868,16 +1883,16 @@ def _draw_standard_element_symbol(
                 stroke_width=2,
             )
         )
-        parent_group.append(
-            draw.Line(
-                bayoff, 
-                symbol_center_y + params.grid_step / 4,
-                bayoff, 
-                symbol_center_y + params.grid_step / 2,
-                stroke=colour,
-                stroke_width=2,
-            )
-        )
+#        parent_group.append(
+#            draw.Line(
+#                bayoff, 
+#                symbol_center_y + params.grid_step / 4,
+#                bayoff, 
+#                symbol_center_y + params.grid_step / 2,
+#                stroke=colour,
+#                stroke_width=2,
+#            )
+#        )
     elif subtype == "reac":
         parent_group.append(
             draw.Line(
@@ -2412,13 +2427,14 @@ def parse_bay_elements(bay_def: str) -> list:
 
 def draw_connection_object(
     element,
-    xoff,
-    y_pos,
+    bayoff,
+    elem_pos,
     parent_group,
     sub,
     colour,
     draw_dot: bool = False,
     owner_id: str = "main",
+    horizontal: bool = True,
 ):
     """Draw a connection object at the specified position.
 
@@ -2428,30 +2444,43 @@ def draw_connection_object(
 
     Args:
         element: The dictionary defining the connection.
-        xoff: The x-coordinate of the connection point.
-        y_pos: The y-coordinate of the connection point.
+        bayoff: The bay coordinate of the connection point.
+        elem_pos: The element coordinate of the connection point.
         parent_group: The `draw.Group` to which a dot might be added.
         sub: The parent `Substation` object.
         colour: The colour for the optional dot.
         draw_dot: Whether to draw a visible dot at the connection point.
         owner_id: The owner identifier for pathfinding.
+        horizontal: Bus orientation.
     """
     conn_id = element["id"]
     connection_name = sub.connections.get(conn_id)
 
     if connection_name:
         # Store the connection point for pathfinding, including voltage
-        connection_data = {
-            "coords": (xoff, y_pos),
+        if horizontal: 
+            connection_data = {
+            "coords": (bayoff, elem_pos),
             "voltage": sub.voltage_kv,
             "owner": owner_id,
-        }
+            }
+        else:
+            connection_data = {
+            "coords": (elem_pos, bayoff),
+            "voltage": sub.voltage_kv,
+            "owner": owner_id,
+            }
         sub.connection_points.setdefault(connection_name, []).append(connection_data)
-        mark_grid_point(
-            sub, xoff, y_pos, weight=ELEMENT_WEIGHT, owner_id=owner_id
-        )  # Connection points are now handled by pathfinder logic
+        if horizontal: #GB
+            mark_grid_point(sub, bayoff, elem_pos, weight=ELEMENT_WEIGHT, owner_id=owner_id) #GB
+        else: #GB
+            mark_grid_point(sub, elem_pos, bayoff, weight=ELEMENT_WEIGHT, owner_id=owner_id) #GB
+          # Connection points are now handled by pathfinder logic
     if draw_dot:
-        parent_group.append(draw.Circle(xoff, y_pos, 5, fill=colour, stroke="none"))
+        if horizontal: #GB
+            parent_group.append(draw.Circle(bayoff, elem_pos, 5, fill=colour, stroke="none")) #GB
+        else: #GB
+            parent_group.append(draw.Circle(elem_pos, bayoff, 5, fill=colour, stroke="none")) #GB
 
 
 def get_substation_group(
@@ -2587,7 +2616,7 @@ def get_substation_group(
                 base_bayoff = child_def["rel_y"] * params.grid_step 
                 
             for i, bay_def in enumerate(child_bay_defs):
-                base_bayoff = child_def["rel_x"] * params.grid_step 
+                #base_bayoff = child_def["rel_x"] * params.grid_step 
                 # Allow any offset value, not just multiples of bay_width
                 bay_width = 2 * params.grid_step
                 bayoff = base_bayoff + (bay_width * i) 
