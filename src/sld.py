@@ -1670,7 +1670,7 @@ def draw_bay_from_string(
                 colour,
                 draw_dot=should_draw_dot,
                 owner_id=owner_id,
-                horizontal=horozontal,
+                horizontal=horizontal,
             )
 
     return parent_group
@@ -1883,16 +1883,6 @@ def _draw_standard_element_symbol(
                 stroke_width=2,
             )
         )
-#        parent_group.append(
-#            draw.Line(
-#                bayoff, 
-#                symbol_center_y + params.grid_step / 4,
-#                bayoff, 
-#                symbol_center_y + params.grid_step / 2,
-#                stroke=colour,
-#                stroke_width=2,
-#            )
-#        )
     elif subtype == "reac":
         parent_group.append(
             draw.Line(
@@ -2048,28 +2038,6 @@ def draw_busbar_object(
                     )
                 )
 
-#    elif subtype == "string":
-#        # Determine line start position
-#        line_start_x = xoff - (
-#            2 * params.grid_step if extend_left else params.grid_step
-#        )
-#
-#        # Draw normal thickness horizontal line spanning 3*GRID_STEP (or 4*GRID_STEP if extending)
-#        parent_group.append(
-#            draw.Line(
-#                line_start_x,
-#                y_pos,
-#                xoff + params.grid_step,
-#                y_pos,
-#                stroke=colour,
-#                stroke_width=2,
-#            )
-#        )
-#        # Mark grid points with BUSBAR_WEIGHT
-#        _mark_busbar_grid_points(
-#            sub, xoff, y_pos, extend_left, BUSBAR_WEIGHT, owner_id, params
-#        )
-
     elif subtype == "null":
         # No line drawn, but mark grid points spanning 3*GRID_STEP (or 4*GRID_STEP if extending)
         if horizontal: 
@@ -2158,38 +2126,12 @@ def draw_busbar_object(
                         )    
                     ) 
                 
- #       # Right line segment
- #       parent_group.append(
- #           draw.Line(
- #               xoff + params.grid_step / 2,
- #               y_pos,
- #               xoff + params.grid_step,
- #               y_pos,
- #               stroke=colour,
- #               stroke_width=line_width,
- #           )
- #       )
-
         # Mark grid points with ELEMENT_WEIGHT
         _mark_busbar_grid_points(
             sub, bayoff, elem_pos, extend_prev, ELEMENT_WEIGHT, owner_id, params
         )
 
         if subtype in ["tie_isol", "tie_isol_thin"]:
-#        # 45 degree isolator line (25px wide) 
-
-#        # Left line segment (extended if needed)
-#        parent_group.append(
-#            draw.Line(
-#                left_line_start_x,
-#                y_pos,
-#                xoff - params.grid_step / 2,
-#                y_pos,
-#                stroke=colour,
-#                stroke_width=line_width,
-#            )
-#        )
-
         # 45-degree isolator line (25px wide)
             isolator_half_size = params.grid_step / 2
             if horizontal: 
@@ -2215,19 +2157,6 @@ def draw_busbar_object(
                         ) 
                     ) 
 
-
-#        # Right line segment
-#        parent_group.append(
-#            draw.Line(
-#                xoff + params.grid_step / 2,
-#                y_pos,
-#                xoff + params.grid_step,
-#                y_pos,
-#                stroke=colour,
-#                stroke_width=line_width,
-#            )
-#        )
-
         # Mark grid points with ELEMENT_WEIGHT
         if horizontal: 
             _mark_busbar_grid_points( 
@@ -2238,7 +2167,6 @@ def draw_busbar_object(
                 ) 
 
     return elem_pos 
-
 
 def draw_element_object(
     element,  
@@ -2471,16 +2399,16 @@ def draw_connection_object(
             "owner": owner_id,
             }
         sub.connection_points.setdefault(connection_name, []).append(connection_data)
-        if horizontal: #GB
-            mark_grid_point(sub, bayoff, elem_pos, weight=ELEMENT_WEIGHT, owner_id=owner_id) #GB
-        else: #GB
-            mark_grid_point(sub, elem_pos, bayoff, weight=ELEMENT_WEIGHT, owner_id=owner_id) #GB
+        if horizontal:
+            mark_grid_point(sub, bayoff, elem_pos, weight=ELEMENT_WEIGHT, owner_id=owner_id)
+        else:
+            mark_grid_point(sub, elem_pos, bayoff, weight=ELEMENT_WEIGHT, owner_id=owner_id)
           # Connection points are now handled by pathfinder logic
     if draw_dot:
-        if horizontal: #GB
-            parent_group.append(draw.Circle(bayoff, elem_pos, 5, fill=colour, stroke="none")) #GB
-        else: #GB
-            parent_group.append(draw.Circle(elem_pos, bayoff, 5, fill=colour, stroke="none")) #GB
+        if horizontal:
+            parent_group.append(draw.Circle(bayoff, elem_pos, 5, fill=colour, stroke="none"))
+        else:
+            parent_group.append(draw.Circle(elem_pos, bayoff, 5, fill=colour, stroke="none"))
 
 
 def get_substation_group(
