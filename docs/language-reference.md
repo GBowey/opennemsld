@@ -46,7 +46,7 @@ A substation is defined in YAML with the following structure:
 
 ## Bay Definition Language
 
-The bay definition language uses a compact, symbolic representation to define the layout of electrical components. Each line in the `def` field represents a horizontal bay, and each character or sequence of characters represents a specific component.
+The bay definition language uses a compact, symbolic representation to define the layout of electrical components. Each line in the `def` or `defv` field represents a bay, and each character or sequence of characters represents a specific component within that bay. `def` creates a layout with horizontal busses while `defv` creates vertical busses.
 
 ### Busbar Symbols
 
@@ -185,7 +185,7 @@ DC converter types:
 
 ## Child Definitions
 
-Child definitions allow for nested substation components, such as lower voltage sections connected through transformers. They follow the same structure as the main substation definition but are included within the parent substation. Multiple child definitions can be included in a single substation definition.
+Child definitions allow for nested substation components, such as lower voltage sections connected through transformers. They follow the same structure as the main substation definition but are included within the parent substation. Multiple child definitions can be included in a single substation definition. Each child can use either horizontal `def` or vertical `defv` busses
 
 ```yaml
 child_definitions:

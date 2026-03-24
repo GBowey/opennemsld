@@ -43,7 +43,7 @@ SLD_DATA_DIR = PARENT_DIR / "sld-data"
 TEMPLATE_FILE = SCRIPT_DIR / "index.template.html"
 OUTPUT_SVG = "sld.svg"  # Temporary file, not the final output
 OUTPUT_HTML = "index.html"
-VERSION = "9"
+VERSION = "10"
 
 # below colours from AEMO NEM SLD pdf for consistency
 COLOUR_MAP = {
@@ -118,6 +118,7 @@ class Substation:
     use_x: float = 0.0  # Final drawing coordinate
     use_y: float = 0.0  # Final drawing coordinate
     state_location: str = ""  # State prefix from YAML filename
+    horizontal: bool = True # stores the bus orientatiom (horizontal by default)
 
     def __post_init__(self):
         self.grid_points = {}  # Store (x,y) -> weight dictionary for grid points
@@ -1228,6 +1229,7 @@ def get_substation_bbox_from_svg(
         buses=substation.buses,
         connections=substation.connections,
         child_definitions=substation.child_definitions,
+        horizontal=substation.horizontal,
     )
     temp_sub.objects = substation.objects.copy() if substation.objects else []
 
@@ -1531,24 +1533,25 @@ def draw_switch(
 
 # --- Bay Drawing Functions ---
 def draw_bay_from_string(
-    xoff: float,
+    bayoff: float,
     parent_group: draw.Group,
     bay_def: str,
     sub: Substation,
     is_first_bay: bool,
     params: DrawingParams = DrawingParams(),
     previous_bay_elements: list = None,
-    y_offset: int = 0,
+    elem_offset: int = 0,
     owner_id: str = "main",
+    horizontal: bool = True
 ) -> draw.Group:
     """Draws a single bay based on a definition string.
 
     This function parses a bay definition string, then iterates through the
-    elements (busbars, switches, connections) to draw them vertically. It
+    elements (busbars, switches, connections) to draw them. It
     handles connecting lines between elements and alignment.
 
     Args:
-        xoff: The x-offset for the entire bay.
+        bayoff: The bay-offset for the entire bay.
         parent_group: The `draw.Group` to which the bay will be added.
         bay_def: The string defining the bay's layout.
         sub: The parent `Substation` object.
@@ -1557,41 +1560,44 @@ def draw_bay_from_string(
         params: Drawing parameters for sizes and steps.
         previous_bay_elements: A list of elements from the previous bay, used
             to determine busbar continuity.
-        y_offset: A y-offset to align the start of the bay.
+        elem_offset: An element-offset to align the start of the bay.
         owner_id: The identifier for the owner of this bay.
+        horizontal: True if horizontal busbar orientation
 
     Returns:
         The parent group with the new bay drawn onto it.
     """
     colour = COLOUR_MAP.get(sub.voltage_kv, "black")
     elements = parse_bay_elements(bay_def)
-    y_pos = -y_offset
+    elem_pos = -elem_offset
 
     # Draw elements with proper connecting lines
-    last_y = y_pos
+    last_elem_pos = elem_pos
 
     for i, element in enumerate(elements):
         if element["type"] == "busbar":
             # Draw connecting line from previous element if needed
-            if i > 0 and last_y != y_pos:
+            if i > 0 and last_elem_pos != elem_pos:
                 parent_group.append(
-                    draw.Line(xoff, last_y, xoff, y_pos, stroke=colour, stroke_width=2)
+                    draw.Line(bayoff, last_elem_pos, bayoff, elem_pos, stroke=colour, stroke_width=2)
                 )
                 # Mark intermediate grid points
-                steps = int((y_pos - last_y) / params.grid_step)
+                steps = int((elem_pos - last_elem_pos) / params.grid_step)
                 for step in range(1, steps):
                     mark_grid_point(
                         sub,
-                        xoff,
-                        last_y + step * params.grid_step,
+                        bayoff if horizontal
+                         else last_elem_pos +step * params.grid_step,
+                        last_elem_pos + step * params.grid_step if horizontal
+                         else bayoff,
                         weight=ELEMENT_WEIGHT,
                         owner_id=owner_id,
                     )
 
-            y_pos = draw_busbar_object(
+            elem_pos = draw_busbar_object(
                 element,
-                xoff,
-                y_pos,
+                bayoff,
+                elem_pos,
                 parent_group,
                 sub,
                 is_first_bay,
@@ -1599,37 +1605,41 @@ def draw_bay_from_string(
                 colour,
                 previous_bay_elements,
                 owner_id=owner_id,
+                horizontal = horizontal
             )
-            last_y = y_pos
+            last_elem_pos = elem_pos
 
         elif element["type"] == "element":
             # Draw connecting line from previous element if needed
-            if i > 0 and last_y != y_pos:
+            if i > 0 and last_elem_pos != elem_pos:
                 parent_group.append(
-                    draw.Line(xoff, last_y, xoff, y_pos, stroke=colour, stroke_width=2)
+                    draw.Line(bayoff, last_elem_pos, bayoff, elem_pos, stroke=colour, stroke_width=2)
                 )
                 # Mark intermediate grid points
-                steps = int((y_pos - last_y) / params.grid_step)
+                steps = int((elem_pos - last_elem_pos) / params.grid_step)
                 for step in range(1, steps):
                     mark_grid_point(
                         sub,
-                        xoff,
-                        last_y + step * params.grid_step,
+                        bayoff if horizontal
+                         else last_elem_pos + step * params.grid_step,
+                        last_elem_pos + step * params.grid_step if horizontal
+                         else bayoff,
                         weight=ELEMENT_WEIGHT,
                         owner_id=owner_id,
                     )
 
-            y_pos = draw_element_object(
+            elem_pos = draw_element_object(
                 element,
-                xoff,
-                y_pos,
+                bayoff,
+                elem_pos,
                 parent_group,
                 sub,
                 params,
                 colour,
                 owner_id=owner_id,
+                horizontal = horizontal,
             )
-            last_y = y_pos
+            last_elem_pos = elem_pos
 
             # Add grid step spacing after each element only if there's another non-connection element following
             next_element_idx = i + 1
@@ -1653,13 +1663,14 @@ def draw_bay_from_string(
                     should_draw_dot = True
             draw_connection_object(
                 element,
-                xoff,
-                y_pos,
+                bayoff,
+                elem_pos,
                 parent_group,
                 sub,
                 colour,
                 draw_dot=should_draw_dot,
                 owner_id=owner_id,
+                horizontal=horizontal,
             )
 
     return parent_group
@@ -1667,12 +1678,13 @@ def draw_bay_from_string(
 
 def _mark_busbar_grid_points(
     sub: "Substation",
-    xoff: float,
-    y_pos: float,
-    extend_left: bool,
+    bayoff: float,
+    elem_pos: float,
+    extend_prev: bool,
     weight: int,
     owner_id: str,
     params: DrawingParams,
+    horizontal: bool = True,
 ):
     """Marks grid points for a busbar element.
 
@@ -1680,52 +1692,71 @@ def _mark_busbar_grid_points(
         sub: The `Substation` object.
         xoff: The central x-offset of the busbar segment.
         y_pos: The y-position of the busbar.
-        extend_left: Whether the busbar should extend further to the left.
+        extend_left: Whether the busbar should extend further to the left or up.
         weight: The pathfinding weight to assign to the grid points.
         owner_id: The owner identifier for the grid points.
         params: Drawing parameters.
+        horizontal: bus orientation.
     """
-    x_positions = [
-        xoff - params.grid_step,
-        xoff,
-        xoff + params.grid_step,
-    ]
-    if extend_left:
-        x_positions.insert(0, xoff - 2 * params.grid_step)
+    if horizontal:
+        x_positions = [
+            bayoff - params.grid_step,
+            bayoff,
+            bayoff + params.grid_step,
+        ]
+        if extend_prev:
+            x_positions.insert(0, bayoff - 2 * params.grid_step)
 
-    for x in x_positions:
-        mark_grid_point(sub, x, y_pos, weight=weight, owner_id=owner_id)
-
+        for x in x_positions:
+            mark_grid_point(sub, x, elem_pos, weight=weight, owner_id=owner_id)
+    else:
+        y_positions = [ 
+        bayoff - params.grid_step, 
+        bayoff, 
+        bayoff + params.grid_step,
+      ] 
+        if extend_prev: 
+            y_positions.insert(0, bayoff - 2* params.grid_step) 
+        for y in y_positions: 
+            mark_grid_point(sub, elem_pos, y, weight=weight,owner_id=owner_id) 
 
 def _draw_standard_element_frame(
     parent_group: draw.Group,
-    xoff: float,
-    y_pos: float,
+    bayoff: float,
+    elem_pos: float,
     colour: str,
     params: DrawingParams,
+    horizontal: bool = True
 ):
-    """Draws the top and bottom connecting lines for a standard 3-step element.
+    """Draws the start and end connecting lines for a standard 3-step element.
 
     Args:
         parent_group: The `draw.Group` to draw on.
-        xoff: The x-coordinate for the element.
-        y_pos: The starting y-coordinate for the element.
+        bayoff: The bay-coordinate for the element.
+        elem_pos: The starting position coordinate for the element.
         colour: The stroke colour for the lines.
         params: Drawing parameters.
+        horizontal: bus orientation.
     """
-    # Top line
+    # Start line
     parent_group.append(
         draw.Line(
-            xoff, y_pos, xoff, y_pos + params.grid_step, stroke=colour, stroke_width=2
+            bayoff if horizontal else elem_pos,
+            elem_pos if horizontal else bayoff,
+            bayoff if horizontal else elem_pos + params.grid_step,
+            elem_pos + params.grid_step if horizontal else bayoff,
+            stroke=colour,
+            stroke_width=2
         )
     )
-    # Bottom line
+    # End line
     parent_group.append(
         draw.Line(
-            xoff,
-            y_pos + 2 * params.grid_step,
-            xoff,
-            y_pos + 3 * params.grid_step,
+            bayoff if horizontal else elem_pos + 2 * params.grid_step,
+            elem_pos + 2 * params.grid_step if horizontal else bayoff, 
+            bayoff if horizontal else elem_pos + 3 * params.grid_step, 
+            elem_pos + 3 * params.grid_step if horizontal 
+                else bayoff, 
             stroke=colour,
             stroke_width=2,
         )
@@ -1735,26 +1766,33 @@ def _draw_standard_element_frame(
 def _draw_standard_element_symbol(
     parent_group: draw.Group,
     subtype: str,
-    xoff: float,
-    y_pos: float,
+    bayoff: float,
+    elem_pos: float,
     colour: str,
     params: DrawingParams,
+    horizontal: bool = True,
 ):
     """Draws the central symbol for a standard 3-step element.
 
     Args:
         parent_group: The `draw.Group` to draw on.
         subtype: The subtype of the element ('cb', 'isolator', 'unknown', 'cap' , 'reac').
-        xoff: The x-coordinate for the element.
-        y_pos: The starting y-coordinate for the element.
+        bayoff: The x-coordinate for the element.
+        elem_pos: The starting y-coordinate for the element..
         colour: The stroke colour for the symbol.
         params: Drawing parameters.
+        horizontal: Bus orientation
     """
-    symbol_center_y = y_pos + params.grid_step + (params.grid_step / 2)
+    if horizontal: 
+        symbol_center_y = elem_pos + params.grid_step * 3 / 2 
+        symbol_center_x = bayoff 
+    else: 
+        symbol_center_y = bayoff 
+        symbol_center_x = elem_pos + params.grid_step * 3 / 2
     if subtype == "cb":
         parent_group.append(
             draw.Rectangle(
-                xoff - params.grid_step / 2,
+                symbol_center_x - params.grid_step / 2,
                 symbol_center_y - params.grid_step / 2,
                 params.grid_step,
                 params.grid_step,
@@ -1767,7 +1805,7 @@ def _draw_standard_element_symbol(
             draw.Text(
                 "?",
                 font_size=params.grid_step,
-                x=xoff,
+                x=symbol_center_x,
                 y=symbol_center_y,
                 text_anchor="middle",
                 dominant_baseline="central",
@@ -1780,9 +1818,9 @@ def _draw_standard_element_symbol(
         isolator_half_size = params.grid_step / 2
         parent_group.append(
             draw.Line(
-                xoff - isolator_half_size,
+                symbol_center_x - isolator_half_size,
                 symbol_center_y - isolator_half_size,
-                xoff + isolator_half_size,
+                symbol_center_x + isolator_half_size,
                 symbol_center_y + isolator_half_size,
                 stroke=colour,
                 stroke_width=2,
@@ -1791,40 +1829,56 @@ def _draw_standard_element_symbol(
     elif subtype == "cap":
         parent_group.append(
             draw.Line(
-                xoff,
-                symbol_center_y - params.grid_step / 2,
-                xoff,
-                symbol_center_y - params.grid_step / 4,
+                symbol_center_x if horizontal
+                    else symbol_center_x - params.grid_step / 2,
+                symbol_center_y - params.grid_step / 2 if horizontal
+                    else symbol_center_y,
+                symbol_center_x if horizontal
+                    else symbol_center_x - params.grid_step / 4,
+                symbol_center_y - params.grid_step / 4 if horizontal
+                    else symbol_center_y,
                 stroke=colour,
                 stroke_width=2,
             )
         )
         parent_group.append(
             draw.Line(
-                xoff - params.grid_step / 2,
-                symbol_center_y - params.grid_step / 4,
-                xoff + params.grid_step / 2,
-                symbol_center_y - params.grid_step / 4,
+                symbol_center_x - params.grid_step / 2 if horizontal
+                    else symbol_center_x + params.grid_step / 4,
+                symbol_center_y + params.grid_step / 4 if horizontal
+                    else symbol_center_y - params.grid_step / 2,
+                symbol_center_x + params.grid_step / 2 if horizontal
+                    else symbol_center_x + params.grid_step / 4,
+                symbol_center_y + params.grid_step / 4 if horizontal
+                    else symbol_center_y + params.grid_step / 2,
                 stroke=colour,
                 stroke_width=2,
             )
         )
         parent_group.append(
             draw.Line(
-                xoff - params.grid_step / 2,
-                symbol_center_y + params.grid_step / 4,
-                xoff + params.grid_step / 2,
-                symbol_center_y + params.grid_step / 4,
+                symbol_center_x - params.grid_step / 2 if horizontal
+                    else symbol_center_x - params.grid_step / 4,
+                symbol_center_y - params.grid_step / 4 if horizontal
+                    else symbol_center_y - params.grid_step / 2,
+                symbol_center_x + params.grid_step / 2 if horizontal
+                    else symbol_center_x - params.grid_step / 4,
+                symbol_center_y - params.grid_step / 4 if horizontal
+                    else symbol_center_y + params.grid_step / 2,
                 stroke=colour,
                 stroke_width=2,
             )
         )
         parent_group.append(
             draw.Line(
-                xoff,
-                symbol_center_y + params.grid_step / 4,
-                xoff,
-                symbol_center_y + params.grid_step / 2,
+                symbol_center_x if horizontal
+                    else symbol_center_x + params.grid_step / 4 ,
+                symbol_center_y + params.grid_step / 4 if horizontal
+                    else symbol_center_y,
+                symbol_center_x if horizontal
+                    else symbol_center_x + params.grid_step / 2,
+                symbol_center_y + params.grid_step / 2 if horizontal
+                    else symbol_center_y,
                 stroke=colour,
                 stroke_width=2,
             )
@@ -1832,31 +1886,35 @@ def _draw_standard_element_symbol(
     elif subtype == "reac":
         parent_group.append(
             draw.Line(
-                xoff,
+                symbol_center_x, 
                 symbol_center_y,
-                xoff,
-                symbol_center_y + params.grid_step / 2,
+                symbol_center_x if horizontal 
+                    else symbol_center_x + params.grid_step / 2, 
+                symbol_center_y + params.grid_step / 2 if horizontal 
+                    else symbol_center_y, 
                 stroke=colour,
                 stroke_width=2,
             )
         )
         parent_group.append(
             draw.Line(
-                xoff,
+                symbol_center_x, 
                 symbol_center_y,
-                xoff + params.grid_step / 2,
-                symbol_center_y,
+                symbol_center_x + params.grid_step / 2 if horizontal 
+                    else symbol_center_x, 
+                symbol_center_y if horizontal 
+                    else symbol_center_y - params.grid_step / 2, 
                 stroke=colour,
                 stroke_width=2,
             )
         )
         parent_group.append(
             draw.Arc(
-                xoff,
+                symbol_center_x, 
                 symbol_center_y,
                 params.grid_step / 2,
-                270,
-                0,
+                270 if horizontal else 180, 
+                0 if horizontal else 270, 
                 stroke=colour,
                 stroke_width=2,
                 fill="transparent",
@@ -1866,8 +1924,8 @@ def _draw_standard_element_symbol(
 
 def draw_busbar_object(
     element,
-    xoff,
-    y_pos,
+    bayoff, 
+    elem_pos, 
     parent_group,
     sub,
     is_first_bay,
@@ -1875,6 +1933,7 @@ def draw_busbar_object(
     colour,
     previous_bay_elements=[],
     owner_id: str = "main",
+    horizontal: bool = True, 
 ):
     """Draw a busbar object at the specified position.
 
@@ -1883,8 +1942,8 @@ def draw_busbar_object(
 
     Args:
         element: The dictionary defining the busbar element.
-        xoff: The x-offset for the bay.
-        y_pos: The y-position for the busbar.
+        bayoff: The offset for the bay. 
+        elem_pos: The element-position for the busbar. 
         parent_group: The `draw.Group` to draw on.
         sub: The parent `Substation` object.
         is_first_bay: Flag for drawing bus labels.
@@ -1892,14 +1951,15 @@ def draw_busbar_object(
         colour: The stroke colour.
         previous_bay_elements: Elements of the previous bay for continuity checks.
         owner_id: The owner identifier for pathfinding.
+        horizontal: Busbar orientation 
 
     Returns:
-        The new y-position after drawing the object.
+        The new position after drawing the object.
     """
     subtype = element["subtype"]
 
-    # Check if previous bay has a busbar at the same y position for continuity
-    extend_left = False
+    # Check if previous bay has a busbar at the same position for continuity
+    extend_prev = False
     previous_bay_elements = (
         [] if previous_bay_elements is None else previous_bay_elements
     )
@@ -1920,183 +1980,204 @@ def draw_busbar_object(
             ]:
                 break  # never extend on tie cb/isol
             if current_busbar_index == 0:  # This is the matching busbar position
-                extend_left = True
+                extend_prev = True
                 break
             current_busbar_index += 1
 
-    if subtype == "standard":
+    if subtype in ["standard","string"]:
         # Determine line start position
-        line_start_x = xoff - (
-            2 * params.grid_step if extend_left else params.grid_step
-        )
+        line_width = 5 if subtype == "standard" else 2
+        if horizontal: 
+            line_start_x = bayoff - ( 
+                2 * params.grid_step if extend_prev else params.grid_step 
+                ) 
+            line_start_y = elem_pos 
+            line_end_x = bayoff + params.grid_step 
+            line_end_y = elem_pos 
+        else:
+            line_start_x = elem_pos 
+            line_start_y = bayoff - (2 * params.grid_step if extend_prev else params.grid_step 
+            ) 
+            line_end_x = elem_pos 
+            line_end_y = bayoff + params.grid_step 
 
-        # Draw thick horizontal line spanning 3*GRID_STEP (or 4*GRID_STEP if extending)
+        # Draw line spanning 3*GRID_STEP (or 4*GRID_STEP if extending)
         parent_group.append(
             draw.Line(
                 line_start_x,
-                y_pos,
-                xoff + params.grid_step,
-                y_pos,
-                stroke=colour,
-                stroke_width=5,
+                line_start_y, 
+                line_end_x, 
+                line_end_y, 
+                stroke=colour, 
+                stroke_width = line_width, 
             )
         )
         # Mark grid points with BUSBAR_WEIGHT
-        _mark_busbar_grid_points(
-            sub, xoff, y_pos, extend_left, BUSBAR_WEIGHT, owner_id, params
-        )
+        if horizontal: 
+            _mark_busbar_grid_points(
+                sub, bayoff, elem_pos, extend_prev, BUSBAR_WEIGHT, owner_id, params) 
+        else: 
+            _mark_busbar_grid_points(
+                sub, elem_pos, bayoff, extend_prev, BUSBAR_WEIGHT, owner_id, params) 
 
         # Add text label if first bay
-        if is_first_bay:
-            bus_id = element["id"]
-            bus_name = sub.buses.get(bus_id, "")
-            parent_group.append(
-                draw.Text(
-                    bus_name,
-                    x=xoff - params.grid_step - 5,
-                    y=y_pos,
-                    font_size=BUS_LABEL_FONT_SIZE,
-                    text_anchor="end",
-                    dominant_baseline="central",
-                    stroke_width=0,
-                    font_family=DEFAULT_FONT_FAMILY,
+        if subtype == "standard":
+            if is_first_bay:
+                bus_id = element["id"]
+                bus_name = sub.buses.get(bus_id, "")
+                parent_group.append(
+                    draw.Text(
+                        bus_name,
+                        x=bayoff - params.grid_step - 5 if horizontal else elem_pos + 5, 
+                        y=elem_pos if horizontal else bayoff - params.grid_step - 10 ,
+                        font_size=BUS_LABEL_FONT_SIZE,
+                        text_anchor="end",
+                        dominant_baseline="central",
+                        stroke_width=0,
+                        font_family=DEFAULT_FONT_FAMILY,
+                    )
                 )
-            )
-
-    elif subtype == "string":
-        # Determine line start position
-        line_start_x = xoff - (
-            2 * params.grid_step if extend_left else params.grid_step
-        )
-
-        # Draw normal thickness horizontal line spanning 3*GRID_STEP (or 4*GRID_STEP if extending)
-        parent_group.append(
-            draw.Line(
-                line_start_x,
-                y_pos,
-                xoff + params.grid_step,
-                y_pos,
-                stroke=colour,
-                stroke_width=2,
-            )
-        )
-        # Mark grid points with BUSBAR_WEIGHT
-        _mark_busbar_grid_points(
-            sub, xoff, y_pos, extend_left, BUSBAR_WEIGHT, owner_id, params
-        )
 
     elif subtype == "null":
         # No line drawn, but mark grid points spanning 3*GRID_STEP (or 4*GRID_STEP if extending)
-        _mark_busbar_grid_points(
-            sub, xoff, y_pos, extend_left, BUSBAR_WEIGHT, owner_id, params
-        )
+        if horizontal: 
+            _mark_busbar_grid_points(
+                sub, bayoff, elem_pos, extend_prev, BUSBAR_WEIGHT, owner_id, params 
+                )
+        else: 
+            _mark_busbar_grid_points(sub, elem_pos, bayoff, extend_prev, BUSBAR_WEIGHT, owner_id, params) 
 
-    elif subtype in ["tie_cb", "tie_cb_thin"]:
-        # Draw busbar with circuit breaker tie
+    elif subtype in ["tie_cb", "tie_cb_thin", "tie_isol", "tie_isol_thin"]:
+        # Draw busbar with tie CB or Isol
         line_width = 5 if subtype == "tie_cb" else 2
 
-        # Determine left line start position
-        left_line_start_x = xoff - (
-            2 * params.grid_step if extend_left else params.grid_step
-        )
+        # Determine first line coordinates
+        if horizontal: 
+            line_start_x = bayoff - ( 
+            2 * params.grid_step if extend_prev else params.grid_step) 
+            line_start_y = elem_pos 
+            line_end_x = bayoff - params.grid_step / 2 
+            line_end_y = elem_pos 
+        
+        else: 
+            line_start_x = elem_pos 
+            line_start_y = bayoff - ( 
+            2 * params.grid_step if extend_prev else params.grid_step) 
+            line_end_x = elem_pos 
+            line_end_y = bayoff - params.grid_step / 2 
 
-        # Left line segment (extended if needed)
+        # Draw first line segment (extended if needed)
         parent_group.append(
             draw.Line(
-                left_line_start_x,
-                y_pos,
-                xoff - params.grid_step / 2,
-                y_pos,
+                line_start_x, 
+                line_start_y, 
+                line_end_x, 
+                line_end_y, 
                 stroke=colour,
                 stroke_width=line_width,
             )
         )
+        # Determine last line coordinates 
+        if horizontal: 
+            line_start_x = bayoff + params.grid_step / 2 
+            line_start_y = elem_pos 
+            line_end_x = bayoff + params.grid_step 
+            line_end_y = elem_pos 
+        else: 
+            line_start_x = elem_pos 
+            line_start_y = bayoff + params.grid_step / 2  
+            line_end_x = elem_pos 
+            line_end_y = bayoff + params.grid_step 
 
-        # Circuit breaker square (25x25)
-        parent_group.append(
-            draw.Rectangle(
-                xoff - params.grid_step / 2,
-                y_pos - params.grid_step / 2,
-                params.grid_step,
-                params.grid_step,
-                fill="transparent",
-                stroke=colour,
-            )
-        )
-
-        # Right line segment
-        parent_group.append(
-            draw.Line(
-                xoff + params.grid_step / 2,
-                y_pos,
-                xoff + params.grid_step,
-                y_pos,
-                stroke=colour,
-                stroke_width=line_width,
-            )
-        )
-
+        # draw last line segment (extended if needed) 
+        parent_group.append( 
+            draw.Line( 
+                line_start_x, 
+                line_start_y, 
+                line_end_x, 
+                line_end_y, 
+                stroke=colour, 
+                stroke_width=line_width, 
+            ) 
+        ) 
+        if subtype in ["tie_cb","tie_cb_thin"]: 
+        
+            # Circuit breaker square (25x25)
+            if horizontal: 
+                parent_group.append(
+                    draw.Rectangle(
+                        bayoff - params.grid_step / 2, 
+                        elem_pos - params.grid_step / 2, 
+                        params.grid_step,
+                        params.grid_step,
+                        fill="transparent",
+                        stroke=colour,
+                        )   
+                    )
+            else:
+                parent_group.append(
+                    draw.Rectangle(
+                        elem_pos - params.grid_step / 2, 
+                        bayoff - params.grid_step / 2, 
+                        params.grid_step,  
+                        params.grid_step, 
+                        fill="transparent", 
+                        stroke=colour, 
+                        )    
+                    ) 
+                
         # Mark grid points with ELEMENT_WEIGHT
         _mark_busbar_grid_points(
-            sub, xoff, y_pos, extend_left, ELEMENT_WEIGHT, owner_id, params
+            sub, bayoff, elem_pos, extend_prev, ELEMENT_WEIGHT, owner_id, params
         )
 
-    elif subtype in ["tie_isol", "tie_isol_thin"]:
-        # Draw busbar with isolator tie
-        line_width = 5 if subtype == "tie_isol" else 2
-
-        # Determine left line start position
-        left_line_start_x = xoff - (
-            2 * params.grid_step if extend_left else params.grid_step
-        )
-
-        # Left line segment (extended if needed)
-        parent_group.append(
-            draw.Line(
-                left_line_start_x,
-                y_pos,
-                xoff - params.grid_step / 2,
-                y_pos,
-                stroke=colour,
-                stroke_width=line_width,
-            )
-        )
-
+        if subtype in ["tie_isol", "tie_isol_thin"]:
         # 45-degree isolator line (25px wide)
-        isolator_half_size = params.grid_step / 2
-        parent_group.append(
-            draw.Line(
-                xoff - isolator_half_size,
-                y_pos - isolator_half_size,
-                xoff + isolator_half_size,
-                y_pos + isolator_half_size,
-                stroke=colour,
-                stroke_width=2,
-            )
-        )
-
-        # Right line segment
-        parent_group.append(
-            draw.Line(
-                xoff + params.grid_step / 2,
-                y_pos,
-                xoff + params.grid_step,
-                y_pos,
-                stroke=colour,
-                stroke_width=line_width,
-            )
-        )
+            isolator_half_size = params.grid_step / 2
+            if horizontal: 
+                parent_group.append( 
+                    draw.Line( 
+                        bayoff - isolator_half_size, 
+                        elem_pos - isolator_half_size, 
+                        bayoff + isolator_half_size, 
+                        elem_pos + isolator_half_size, 
+                        stroke=colour, 
+                        stroke_width = line_width, 
+                        ) 
+                    ) 
+            else: 
+                parent_group.append( 
+                    draw.Line( 
+                        elem_pos - isolator_half_size, 
+                        bayoff - isolator_half_size, 
+                        elem_pos + isolator_half_size, 
+                        bayoff + isolator_half_size, 
+                        stroke=colour, 
+                        stroke_width = line_width, 
+                        ) 
+                    ) 
 
         # Mark grid points with ELEMENT_WEIGHT
-        _mark_busbar_grid_points(
-            sub, xoff, y_pos, extend_left, ELEMENT_WEIGHT, owner_id, params
-        )
+        if horizontal: 
+            _mark_busbar_grid_points( 
+                sub, bayoff, elem_pos, extend_prev, ELEMENT_WEIGHT, owner_id, params 
+                ) 
+        else: 
+            _mark_busbar_grid_points(sub, elem_pos, bayoff, extend_prev, ELEMENT_WEIGHT, owner_id, params
+                ) 
 
-    return y_pos
-
+    return elem_pos 
 
 def draw_element_object(
-    element, xoff, y_pos, parent_group, sub, params, colour, owner_id: str = "main"
+    element,  
+    bayoff,  
+    elem_pos,  
+    parent_group,  
+    sub,  
+    params,  
+    colour,  
+    owner_id: str = "main", 
+    horizontal: bool = True 
 ):
     """Draw an element object at the specified position.
 
@@ -2105,41 +2186,55 @@ def draw_element_object(
 
     Args:
         element: The dictionary defining the element.
-        xoff: The x-offset for the bay.
-        y_pos: The starting y-position for the element.
+        bayoff: The x-offset for the bay. 
+        elem_pos: The starting y-position for the element. 
         parent_group: The `draw.Group` to draw on.
         sub: The parent `Substation` object.
         params: Drawing parameters.
         colour: The stroke colour.
         owner_id: The owner identifier for pathfinding.
+        horizontal: Busbar orientation.
 
     Returns:
-        The new y-position after drawing the object.
+        The new element position after drawing the object.
     """
     subtype = element["subtype"]
 
     if subtype in ["cb", "unknown", "isolator", "cap", "reac"]:
-        _draw_standard_element_frame(parent_group, xoff, y_pos, colour, params)
+        _draw_standard_element_frame( 
+            parent_group,  
+            bayoff,  
+            elem_pos,  
+            colour,  
+            params, 
+            horizontal 
+            ) 
         _draw_standard_element_symbol(
-            parent_group, subtype, xoff, y_pos, colour, params
-        )
+            parent_group,  
+            subtype,  
+            bayoff,  
+            elem_pos,  
+            colour,  
+            params, 
+            horizontal
+            )
         for i in range(4):
             mark_grid_point(
                 sub,
-                xoff,
-                y_pos + i * params.grid_step,
+                bayoff if horizontal else elem_pos +i * params.grid_step, 
+                elem_pos + i * params.grid_step if horizontal else bayoff, 
                 weight=ELEMENT_WEIGHT,
                 owner_id=owner_id,
             )
 
     elif subtype == "direct":
-        # Direct connection: single vertical line spanning 3*GRID_STEP
+        # Direct connection: single line spanning 3 * GRID_STEP
         parent_group.append(
             draw.Line(
-                xoff,
-                y_pos,
-                xoff,
-                y_pos + 3 * params.grid_step,
+                bayoff if horizontal else elem_pos, 
+                elem_pos if horizontal else bayoff, 
+                bayoff if horizontal else elem_pos + 3 * params.grid_step, 
+                elem_pos + 3 * params.grid_step if horizontal else bayoff, 
                 stroke=colour,
                 stroke_width=2,
             )
@@ -2147,8 +2242,8 @@ def draw_element_object(
         for i in range(4):
             mark_grid_point(
                 sub,
-                xoff,
-                y_pos + i * params.grid_step,
+                bayoff if horizontal else elem_pos +i * params.grid_step, 
+                elem_pos + i * params.grid_step if horizontal else bayoff, 
                 weight=ELEMENT_WEIGHT,
                 owner_id=owner_id,
             )
@@ -2157,7 +2252,7 @@ def draw_element_object(
         # Empty element: no drawing, no grid marking, but advance position
         pass
 
-    return y_pos + 3 * params.grid_step
+    return elem_pos + 3 * params.grid_step 
 
 
 def parse_bay_elements(bay_def: str) -> list:
@@ -2240,6 +2335,9 @@ def parse_bay_elements(bay_def: str) -> list:
             elements.append({"type": "element", "subtype": "reac"})
             char_index += 1
 
+        elif char in [" ",","]: # ignore space & comma
+            char_index += 1
+
         # Handle connection objects
         elif char.isdigit():
             num_start_index = char_index
@@ -2260,13 +2358,14 @@ def parse_bay_elements(bay_def: str) -> list:
 
 def draw_connection_object(
     element,
-    xoff,
-    y_pos,
+    bayoff,
+    elem_pos,
     parent_group,
     sub,
     colour,
     draw_dot: bool = False,
     owner_id: str = "main",
+    horizontal: bool = True,
 ):
     """Draw a connection object at the specified position.
 
@@ -2276,30 +2375,43 @@ def draw_connection_object(
 
     Args:
         element: The dictionary defining the connection.
-        xoff: The x-coordinate of the connection point.
-        y_pos: The y-coordinate of the connection point.
+        bayoff: The bay coordinate of the connection point.
+        elem_pos: The element coordinate of the connection point.
         parent_group: The `draw.Group` to which a dot might be added.
         sub: The parent `Substation` object.
         colour: The colour for the optional dot.
         draw_dot: Whether to draw a visible dot at the connection point.
         owner_id: The owner identifier for pathfinding.
+        horizontal: Bus orientation.
     """
     conn_id = element["id"]
     connection_name = sub.connections.get(conn_id)
 
     if connection_name:
         # Store the connection point for pathfinding, including voltage
-        connection_data = {
-            "coords": (xoff, y_pos),
+        if horizontal: 
+            connection_data = {
+            "coords": (bayoff, elem_pos),
             "voltage": sub.voltage_kv,
             "owner": owner_id,
-        }
+            }
+        else:
+            connection_data = {
+            "coords": (elem_pos, bayoff),
+            "voltage": sub.voltage_kv,
+            "owner": owner_id,
+            }
         sub.connection_points.setdefault(connection_name, []).append(connection_data)
-        mark_grid_point(
-            sub, xoff, y_pos, weight=ELEMENT_WEIGHT, owner_id=owner_id
-        )  # Connection points are now handled by pathfinder logic
+        if horizontal:
+            mark_grid_point(sub, bayoff, elem_pos, weight=ELEMENT_WEIGHT, owner_id=owner_id)
+        else:
+            mark_grid_point(sub, elem_pos, bayoff, weight=ELEMENT_WEIGHT, owner_id=owner_id)
+          # Connection points are now handled by pathfinder logic
     if draw_dot:
-        parent_group.append(draw.Circle(xoff, y_pos, 5, fill=colour, stroke="none"))
+        if horizontal:
+            parent_group.append(draw.Circle(bayoff, elem_pos, 5, fill=colour, stroke="none"))
+        else:
+            parent_group.append(draw.Circle(elem_pos, bayoff, 5, fill=colour, stroke="none"))
 
 
 def get_substation_group(
@@ -2343,11 +2455,11 @@ def get_substation_group(
 
     bay_defs = sub.definition.strip().split("\n")
 
-    # Pre-calculate the maximum y-offset needed for any bay to align all busbars
-    max_y_offset = 0
+    # Pre-calculate the maximum offset needed for any bay to align all busbars
+    max_elem_offset = 0 
     parsed_bays = [parse_bay_elements(bay_def) for bay_def in bay_defs]
     for elements in parsed_bays:
-        y_offset = 0
+        elem_offset = 0 
         first_busbar_idx = next(
             (i for i, el in enumerate(elements) if el["type"] == "busbar"), -1
         )
@@ -2355,34 +2467,35 @@ def get_substation_group(
             # Count elements before the first busbar
             for i in range(first_busbar_idx):
                 if elements[i]["type"] == "element":
-                    y_offset += 3 * params.grid_step
-        max_y_offset = max(max_y_offset, y_offset)
+                    elem_offset += 3 * params.grid_step 
+        max_elem_offset = max(max_elem_offset, elem_offset) 
 
     previous_bay_elements = None
     for i, bay_def in enumerate(bay_defs):
-        xoff = 2 * params.grid_step * i  # Use 2*GRID_STEP spacing between bays (50px)
+        bayoff = 2 * params.grid_step * i  # Use 2*GRID_STEP spacing between bays (50px) 
         is_first_bay = i == 0
 
         # handle correct offset
         if parsed_bays[i][0]["type"] == "busbar":
-            y_offset = 0
+            elem_offset = 0 
         else:
-            y_offset = max_y_offset
+            elem_offset = max_elem_offset 
 
         # Parse previous bay elements for continuity checking
         if i > 0:
             previous_bay_elements = parsed_bays[i - 1]
 
         dg = draw_bay_from_string(
-            xoff,
+            bayoff, 
             dg,
             bay_def,
             sub,
             is_first_bay,
             params,
             previous_bay_elements,
-            y_offset=y_offset,
+            elem_offset=elem_offset, 
             owner_id="main",
+            horizontal=sub.horizontal 
         )
 
     # Draw objects after bays
@@ -2403,16 +2516,20 @@ def get_substation_group(
             sub.voltage_kv = child_def["voltage_kv"]
             sub.connections = child_def.get("connections", {})
             sub.buses = child_def.get("buses", {})
-
-            child_bay_defs = child_def["def"].strip().split("\n")
+            if "def" in child_def: 
+                child_bay_defs = child_def["def"].strip().split("\n") 
+                horizontal = True 
+            elif "defv" in child_def:
+                child_bay_defs = child_def["defv"].strip().split("\n") 
+                horizontal = False 
             child_parsed_bays = [
                 parse_bay_elements(bay_def) for bay_def in child_bay_defs
             ]
 
-            # Pre-calculate the maximum y-offset needed for any bay to align all busbars
-            child_max_y_offset = 0
+            # Pre-calculate the maximum offset needed for any bay to align all busbars
+            child_max_elem_offset = 0
             for elements in child_parsed_bays:
-                y_offset_for_alignment = 0
+                element_offset_for_alignment = 0
                 first_busbar_idx = next(
                     (i for i, el in enumerate(elements) if el["type"] == "busbar"), -1
                 )
@@ -2420,40 +2537,51 @@ def get_substation_group(
                     # Count elements before the first busbar
                     for i in range(first_busbar_idx):
                         if elements[i]["type"] == "element":
-                            y_offset_for_alignment += 3 * params.grid_step
-                child_max_y_offset = max(child_max_y_offset, y_offset_for_alignment)
+                            element_offset_for_alignment += 3 * params.grid_step 
+                child_max_elem_offset = max(child_max_elem_offset, element_offset_for_alignment) 
 
             child_previous_bay_elements = None
+            if horizontal: 
+                 base_bayoff = child_def["rel_x"] * params.grid_step 
+            else: 
+                base_bayoff = child_def["rel_y"] * params.grid_step 
+                
             for i, bay_def in enumerate(child_bay_defs):
-                base_xoff = child_def["rel_x"] * params.grid_step
-                # Allow any x offset value, not just multiples of bay_width
+                #base_bayoff = child_def["rel_x"] * params.grid_step 
+                # Allow any offset value, not just multiples of bay_width
                 bay_width = 2 * params.grid_step
-                xoff = base_xoff + (bay_width * i)
+                bayoff = base_bayoff + (bay_width * i) 
 
-                # handle correct y offset for this bay within the child
-                y_offset_for_alignment = 0
+                # handle correct elem offset for this bay within the child
+                elem_offset_for_alignment = 0
                 if child_parsed_bays[i] and child_parsed_bays[i][0]["type"] != "busbar":
-                    y_offset_for_alignment = child_max_y_offset
+                    elem_offset_for_alignment = child_max_elem_offset
 
                 # y_offset is negative of desired y_pos start
                 # The final y_offset should combine the relative position and the alignment.
-                y_offset = (
-                    -(child_def["rel_y"] * params.grid_step) + y_offset_for_alignment
-                )
+                if horizontal: 
+                    elem_offset = ( 
+                                   -(child_def["rel_y"] * params.grid_step) + elem_offset_for_alignment 
+                                   ) 
+                else: 
+                    elem_offset = ( 
+                                   -(child_def["rel_x"] * params.grid_step) + elem_offset_for_alignment 
+                                   ) 
 
                 if i > 0:
                     child_previous_bay_elements = child_parsed_bays[i - 1]
 
                 draw_bay_from_string(
-                    xoff,
+                    bayoff, 
                     dg,
                     bay_def,
                     sub,
                     is_first_bay=(i == 0),  # Child bays can now have bus labels
                     params=params,
                     previous_bay_elements=child_previous_bay_elements,
-                    y_offset=y_offset,
+                    elem_offset=elem_offset, 
                     owner_id=f"child_{i}",
+                    horizontal = horizontal  
                 )
 
             # Draw child objects
@@ -2613,12 +2741,12 @@ def calculate_connection_points(
                 rel_x = local_x - center_x
                 rel_y = local_y - center_y
                 # Rotate (for Y-down coordinate system, this is a clockwise rotation)
-                rotated_x = rel_x * math.cos(rotation_rad) + rel_y * math.sin(
+                rotated_x = rel_x * math.cos(rotation_rad) - rel_y * math.sin( 
                     rotation_rad
-                )
-                rotated_y = -rel_x * math.sin(rotation_rad) + rel_y * math.cos(
+                ) #corrected rotation of connection points
+                rotated_y = rel_x * math.sin(rotation_rad) + rel_y * math.cos(
                     rotation_rad
-                )
+                ) #corrected rotation of connection points
                 rotated_local_x = rotated_x + center_x
                 rotated_local_y = rotated_y + center_y
 
